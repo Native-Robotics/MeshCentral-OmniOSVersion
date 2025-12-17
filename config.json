@@ -5,5 +5,14 @@
   "author": "wwwfyl",
   "description": "Show OmniOS version on the device General tab.",
   "hasAdminPanel": false,
-  "meshCentralCompat": ">=1.1.35"
+  "meshCentralCompat": ">=1.1.35",
+  "homepage": "https://github.com/Native-Robotics/MeshCentral-OmniOSVersion",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Native-Robotics/MeshCentral-OmniOSVersion.git"
+  },
+  "downloadUrl": "https://github.com/Native-Robotics/MeshCentral-OmniOSVersion/archive/refs/heads/main.zip",
+  "configUrl": "https://raw.githubusercontent.com/Native-Robotics/MeshCentral-OmniOSVersion/main/config.json",
+  "changelogUrl": "https://raw.githubusercontent.com/Native-Robotics/MeshCentral-OmniOSVersion/main/CHANGELOG.md",
+  "versionHistoryUrl": "https://api.github.com/repos/Native-Robotics/MeshCentral-OmniOSVersion/tags"
 }
