@@ -10,7 +10,14 @@ var wscon = null;
 var db = require('SimpleDataStore').Shared();
 var fs = require('fs');
 
+function dbg(msg) {
+    try {
+        require('MeshAgent').SendCommand({ action: 'msg', type: 'console', value: '[omniosversion-agent] ' + msg });
+    } catch (e) { }
+}
+
 function consoleaction(args, rights, sessionid, parent) {
+    dbg('consoleaction called with pluginaction: ' + (args.pluginaction || args['_'] ? args['_'][1] : 'unknown'));
     isWsconnection = false;
     wscon = parent;
     _sessionid = sessionid;
@@ -28,26 +35,33 @@ function consoleaction(args, rights, sessionid, parent) {
 
     switch (fnname) {
         case 'readOmni':
+            dbg('readOmni action called');
             readOmniFile();
         break;
         default:
-            // Unknown action; ignore silently
+            dbg('Unknown action: ' + fnname);
         break;
     }
 }
 
 function readOmniFile() {
+    dbg('readOmniFile called');
     var cacheKey = 'plugin_OmniOSVersion_cache';
     var cached = db.Get(cacheKey);
     if (cached && cached.version !== undefined) {
+        dbg('Found cached version: ' + cached.version);
         sendVersion(cached.version);
         return;
     }
+    dbg('No cache found, reading file /etc/OmniOS');
     var version = null;
     try {
         if (fs.existsSync('/etc/OmniOS')) {
+            dbg('File /etc/OmniOS exists, reading...');
             var content = fs.readFileSync('/etc/OmniOS').toString();
+            dbg('File content length: ' + content.length);
             var lines = content.split(/\r?\n/);
+            dbg('Number of lines: ' + lines.length);
             var firstPair = null;
             lines.forEach(function (line) {
                 if (!line) return;
@@ -58,28 +72,43 @@ function readOmniFile() {
                 if (!firstPair) firstPair = val;
                 if (key.toUpperCase() === 'OMNIOS_VER') {
                     version = val;
+                    dbg('Found OMNIOS_VER: ' + version);
                 }
             });
-            if (version == null) version = firstPair;
+            if (version == null) {
+                version = firstPair;
+                dbg('No OMNIOS_VER found, using first value: ' + version);
+            }
+        } else {
+            dbg('File /etc/OmniOS does not exist');
         }
     } catch (e) {
-        // Fail silently; will send null
+        dbg('Error reading file: ' + e.message);
     }
+    dbg('Caching version: ' + version);
     db.Put(cacheKey, { version: version });
     sendVersion(version);
 }
 
 function sendVersion(version) {
+    dbg('sendVersion called with version: ' + version);
     try {
-        mesh.SendCommand({
+        var cmd = {
             action: 'plugin',
             plugin: 'omniosversion',
             pluginaction: 'omniData',
             sessionid: _sessionid,
             tag: 'console',
             version: version === undefined ? null : version
-        });
+        };
+        dbg('Sending command to server: ' + JSON.stringify(cmd));
+        mesh.SendCommand(cmd);
+        dbg('Command sent successfully');
     } catch (e) {
-        // Ignore send failures
+        dbg('Error sending version: ' + e.message);
     }
 }
+
+dbg('omniosversion module loaded');
+
+module.exports = { consoleaction : consoleaction };
