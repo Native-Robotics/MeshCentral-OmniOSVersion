@@ -41,6 +41,10 @@ function consoleaction(args, rights, sessionid, parent) {
             dbg('readOmni action called');
             readOmniFile();
         break;
+        case 'readApps':
+            dbg('readApps action called');
+            readAppsFile();
+        break;
         default:
             dbg('Unknown action: ' + fnname);
         break;
@@ -109,6 +113,78 @@ function sendVersion(version) {
         dbg('Command sent successfully');
     } catch (e) {
         dbg('Error sending version: ' + e.message);
+    }
+}
+
+// Reads application versions from /var/nr/apps.ver and sends them back
+function readAppsFile() {
+    dbg('readAppsFile called');
+    var path = '/var/nr/apps.ver';
+    var apps = [];
+    var updated = null;
+    try {
+        if (fs.existsSync(path)) {
+            dbg('File ' + path + ' exists, reading...');
+            var content = fs.readFileSync(path).toString();
+            dbg('File content length: ' + content.length);
+            var lines = content.split(/\r?\n/);
+            lines.forEach(function (line) {
+                if (!line) return;
+                var trimmed = line.trim();
+                if (trimmed.length === 0) return;
+                // Try to detect an update timestamp line
+                if (!updated && /update|updated|date|timestamp/i.test(trimmed)) {
+                    updated = trimmed.replace(/^\s*[-#;]*/,'').trim();
+                }
+                // Parse possible formats: key=value, name: version, "Name version: x", "Name x.y.z"
+                var name = null, version = null;
+                if (trimmed.indexOf('=') !== -1) {
+                    var partsEq = trimmed.split('=');
+                    name = partsEq[0].trim();
+                    version = partsEq.slice(1).join('=').trim();
+                } else if (trimmed.indexOf(':') !== -1) {
+                    var partsCol = trimmed.split(':');
+                    name = partsCol[0].trim();
+                    version = partsCol.slice(1).join(':').trim();
+                } else {
+                    // Fallback: split by whitespace, last token as version
+                    var partsWs = trimmed.split(/\s+/);
+                    if (partsWs.length >= 2) {
+                        version = partsWs.pop();
+                        name = partsWs.join(' ');
+                    }
+                }
+                if (name && version) {
+                    apps.push({ name: name, version: version });
+                }
+            });
+            // If no explicit updated found, use file mtime
+            try {
+                var stat = fs.statSync(path);
+                if (stat && stat.mtime) {
+                    updated = updated || ('Updated: ' + new Date(stat.mtime.getTime()).toISOString());
+                }
+            } catch (e2) { }
+        } else {
+            dbg('File ' + path + ' does not exist');
+        }
+    } catch (e) {
+        dbg('Error reading apps file: ' + e.message);
+    }
+    try {
+        var cmd = {
+            action: 'plugin',
+            plugin: 'omniosversion',
+            pluginaction: 'appsData',
+            sessionid: _sessionid,
+            tag: 'console',
+            apps: apps,
+            updated: updated
+        };
+        dbg('Sending appsData to server: ' + JSON.stringify({ pluginaction: cmd.pluginaction, count: apps.length, updated: updated }));
+        mesh.SendCommand(cmd);
+    } catch (e3) {
+        dbg('Error sending appsData: ' + e3.message);
     }
 }
 

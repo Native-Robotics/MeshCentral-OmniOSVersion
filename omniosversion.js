@@ -10,12 +10,19 @@ module.exports.omniosversion = function (parent) {
     obj.meshServer = parent.parent;
     obj.debug = obj.meshServer.debug;
     obj.cache = {}; // nodeid => { version, time }
+        obj.appsCache = {}; // nodeid => { apps, updated, time }
     obj.pending = {}; // nodeid => [sessionIds]
+        obj.pendingApps = {}; // nodeid => [sessionIds]
     obj.inflight = {}; // nodeid => boolean
+        obj.inflightApps = {}; // nodeid => boolean
+        obj.appsTtlMs = 24 * 60 * 60 * 1000; // 24h TTL; manual refresh available
     obj.exports = [
       'onDeviceRefreshEnd',
       'omniData',
       'requestOmni',
+            'appsData',
+            'requestApps',
+            'refreshApps',
       'injectGeneral',
       'escapeHtml'
     ];
@@ -46,6 +53,22 @@ module.exports.omniosversion = function (parent) {
         delete obj.pending[nodeid];
     };
 
+    obj.queueSessionApps = function (nodeid, sessionid) {
+        if (!nodeid || !sessionid) return;
+        if (!obj.pendingApps[nodeid]) obj.pendingApps[nodeid] = [];
+        if (obj.pendingApps[nodeid].indexOf(sessionid) === -1) obj.pendingApps[nodeid].push(sessionid);
+    };
+
+    obj.flushPendingApps = function (nodeid, msg, grandparent) {
+        if (!nodeid || !obj.pendingApps[nodeid]) return;
+        obj.pendingApps[nodeid].forEach(function (sess) {
+            if (grandparent && grandparent.wssessions2 && grandparent.wssessions2[sess]) {
+                try { grandparent.wssessions2[sess].send(JSON.stringify(msg)); } catch (e) { }
+            }
+        });
+        delete obj.pendingApps[nodeid];
+    };
+
     obj.requestFromAgent = function (nodeid) {
         obj.debug('omniosversion', 'requestFromAgent called for:', nodeid);
         if (!nodeid) {
@@ -72,10 +95,27 @@ module.exports.omniosversion = function (parent) {
         }
     };
 
+    obj.requestAppsFromAgent = function (nodeid) {
+        obj.debug('omniosversion', 'requestAppsFromAgent called for:', nodeid);
+        if (!nodeid) { obj.debug('omniosversion', 'requestAppsFromAgent: no nodeid'); return; }
+        if (obj.inflightApps[nodeid]) { obj.debug('omniosversion', 'requestAppsFromAgent: already inflight for', nodeid); return; }
+        obj.inflightApps[nodeid] = true;
+        var agent = obj.meshServer.webserver.wsagents[nodeid];
+        if (agent == null) { obj.debug('omniosversion', 'requestAppsFromAgent: agent not found for', nodeid); obj.inflightApps[nodeid] = false; return; }
+        try {
+            obj.debug('omniosversion', 'requestAppsFromAgent: sending readApps command to', nodeid);
+            agent.send(JSON.stringify({ action: 'plugin', plugin: 'omniosversion', pluginaction: 'readApps' }));
+        } catch (e) {
+            obj.debug('omniosversion', 'requestAppsFromAgent: error sending to agent', nodeid, e);
+            obj.inflightApps[nodeid] = false;
+        }
+    };
+
     // --- hooks ---
     obj.hook_agentCoreIsStable = function (myparent, gp) {
         obj.debug('omniosversion', 'hook_agentCoreIsStable called for node:', myparent.dbNodeKey);
         obj.requestFromAgent(myparent.dbNodeKey);
+        obj.requestAppsFromAgent(myparent.dbNodeKey);
     };
 
     obj.serveraction = function (command, myparent, grandparent) {
@@ -116,6 +156,38 @@ module.exports.omniosversion = function (parent) {
                 obj.inflight[node] = false;
                 break;
             }
+            case 'getApps': {
+                var nodeid2 = command.nodeid || myparent.dbNodeKey;
+                var force = !!command.force;
+                obj.debug('omniosversion', 'getApps request for node:', nodeid2, 'force:', force);
+                if (!nodeid2) { obj.debug('omniosversion', 'getApps: no nodeid'); return; }
+                var cachedApps = obj.appsCache[nodeid2];
+                var fresh = cachedApps && ((Date.now() - cachedApps.time) < obj.appsTtlMs);
+                var msgApps = { action: 'plugin', plugin: 'omniosversion', method: 'appsData', data: { nodeid: nodeid2, apps: (cachedApps ? cachedApps.apps : null), updated: (cachedApps ? cachedApps.updated : null) } };
+                if (cachedApps && fresh && !force) {
+                    obj.debug('omniosversion', 'getApps: returning cached apps; count:', (cachedApps.apps ? cachedApps.apps.length : 0));
+                    obj.sendToSession(command.sessionid, myparent, msgApps, grandparent);
+                    return;
+                }
+                obj.debug('omniosversion', 'getApps: cache miss/stale or force; queuing and requesting from agent');
+                obj.queueSessionApps(nodeid2, command.sessionid);
+                // Send immediate response with current (possibly null) cache to update UI
+                obj.sendToSession(command.sessionid, myparent, msgApps, grandparent);
+                obj.requestAppsFromAgent(nodeid2);
+                break;
+            }
+            case 'appsData': {
+                var node3 = myparent.dbNodeKey;
+                if (!node3) { obj.debug('omniosversion', 'appsData: no node'); return; }
+                var appsArr = Array.isArray(command.apps) ? command.apps : [];
+                var upd = command.updated || null;
+                obj.appsCache[node3] = { apps: appsArr, updated: upd, time: Date.now() };
+                var outMsg2 = { action: 'plugin', plugin: 'omniosversion', method: 'appsData', data: { nodeid: node3, apps: appsArr, updated: upd } };
+                obj.debug('omniosversion', 'appsData: received; apps:', appsArr.length, 'updated:', upd);
+                obj.flushPendingApps(node3, outMsg2, grandparent);
+                obj.inflightApps[node3] = false;
+                break;
+            }
         }
     };
 
@@ -141,14 +213,31 @@ module.exports.omniosversion = function (parent) {
             return;
         }
 
-        // Получаем данные
+        // Получаем данные OmniOS
         var data = (pluginHandler.omniosversion.nodeCache || {})[currentNode._id];
         var text = 'Loading...';
         if (data) {
             text = (data.version == null || data.version === '') ? 'None' : pluginHandler.omniosversion.escapeHtml(String(data.version));
             console.log('[omniosversion] displaying version:', text);
         } else {
-            console.log('[omniosversion] no data in cache for node:', currentNode._id);
+            console.log('[omniosversion] no omni data in cache for node:', currentNode._id);
+        }
+
+        // Получаем данные Apps
+        var appsCache = (pluginHandler.omniosversion.nodeAppsCache || {})[currentNode._id];
+        var appsHtml = 'Loading...';
+        var appsCount = 0;
+        var updatedTxt = '';
+        if (appsCache) {
+            if (Array.isArray(appsCache.apps) && appsCache.apps.length > 0) {
+                appsCount = appsCache.apps.length;
+                appsHtml = appsCache.apps.map(function (x) { return pluginHandler.omniosversion.escapeHtml(x.name + ': ' + x.version); }).join('<br/>');
+            } else {
+                appsHtml = 'None';
+            }
+            if (appsCache.updated) { updatedTxt = ' (Last updated: ' + pluginHandler.omniosversion.escapeHtml(String(appsCache.updated)) + ')'; }
+        } else {
+            console.log('[omniosversion] no apps data in cache for node:', currentNode._id);
         }
 
         // Вставка в таблицу внутри p10html
@@ -161,16 +250,20 @@ module.exports.omniosversion = function (parent) {
                 // Удаляем существующую строку если есть
                 var existingRow = table.querySelector('#omniosVersionTableRow');
                 if (existingRow && existingRow.parentNode) existingRow.parentNode.removeChild(existingRow);
+                var existingAppsRow = table.querySelector('#omniosAppsTableRow');
+                if (existingAppsRow && existingAppsRow.parentNode) existingAppsRow.parentNode.removeChild(existingAppsRow);
                 
                 // Создаём новую строку в стиле MeshCentral
                 var row = '<tr id="omniosVersionTableRow"><td class="style7">OmniOS</td><td class="style9">' + text + '</td></tr>';
+                var refreshLink = '<a href="#" onclick="pluginHandler.omniosversion.refreshApps(); return false;">Refresh</a>';
+                var appsRow = '<tr id="omniosAppsTableRow"><td class="style7">Apps' + (appsCount ? (' (' + appsCount + ')') : '') + '</td><td class="style9">' + appsHtml + '<div style="margin-top:4px;color:#888;">' + refreshLink + (updatedTxt ? (' • ' + updatedTxt) : '') + '</div></td></tr>';
                 
                 // Вставляем в начало таблицы (после первой строки если она есть)
                 var tbody = table.querySelector('tbody') || table;
                 if (tbody.children.length > 0) {
-                    tbody.children[0].insertAdjacentHTML('afterend', row);
+                    tbody.children[0].insertAdjacentHTML('afterend', row + appsRow);
                 } else {
-                    tbody.insertAdjacentHTML('beforeend', row);
+                    tbody.insertAdjacentHTML('beforeend', row + appsRow);
                 }
                 console.log('[omniosversion] Table row injected');
             } else {
@@ -191,6 +284,8 @@ module.exports.omniosversion = function (parent) {
         pluginHandler.omniosversion.nodeCache = pluginHandler.omniosversion.nodeCache || {};
         pluginHandler.omniosversion.injectGeneral();
         pluginHandler.omniosversion.requestOmni();
+        pluginHandler.omniosversion.nodeAppsCache = pluginHandler.omniosversion.nodeAppsCache || {};
+        pluginHandler.omniosversion.requestApps();
     };
 
     obj.requestOmni = function () {
@@ -212,6 +307,28 @@ module.exports.omniosversion = function (parent) {
         pluginHandler.omniosversion.nodeCache = pluginHandler.omniosversion.nodeCache || {};
         pluginHandler.omniosversion.nodeCache[msg.data.nodeid] = msg.data;
         console.log('[omniosversion] omniData: cached version for', msg.data.nodeid, ':', msg.data.version);
+        pluginHandler.omniosversion.injectGeneral();
+    };
+
+    obj.requestApps = function (force) {
+        console.log('[omniosversion] requestApps called; force:', !!force);
+        if (typeof meshserver === 'undefined' || !currentNode) {
+            console.log('[omniosversion] meshserver or currentNode undefined');
+            return;
+        }
+        meshserver.send({ action: 'plugin', plugin: 'omniosversion', pluginaction: 'getApps', nodeid: currentNode._id, force: !!force });
+    };
+
+    obj.refreshApps = function () {
+        console.log('[omniosversion] refreshApps clicked');
+        obj.requestApps(true);
+    };
+
+    obj.appsData = function (state, msg) {
+        console.log('[omniosversion] appsData received:', msg);
+        if (!msg || !msg.data || !msg.data.nodeid) { console.log('[omniosversion] appsData: invalid message'); return; }
+        pluginHandler.omniosversion.nodeAppsCache = pluginHandler.omniosversion.nodeAppsCache || {};
+        pluginHandler.omniosversion.nodeAppsCache[msg.data.nodeid] = { apps: (msg.data.apps || []), updated: (msg.data.updated || null) };
         pluginHandler.omniosversion.injectGeneral();
     };
 
