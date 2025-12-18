@@ -231,7 +231,21 @@ module.exports.omniosversion = function (parent) {
         if (appsCache) {
             if (Array.isArray(appsCache.apps) && appsCache.apps.length > 0) {
                 appsCount = appsCache.apps.length;
-                appsHtml = appsCache.apps.map(function (x) { return pluginHandler.omniosversion.escapeHtml(x.name + ': ' + x.version); }).join('<br/>');
+                // Align Name and Version using monospace preformatted block
+                var lines = [];
+                var maxNameLen = 0;
+                appsCache.apps.forEach(function (x) {
+                    var name = (x.name || '').trim();
+                    var version = (x.version || '').trim();
+                    maxNameLen = Math.max(maxNameLen, name.length);
+                    lines.push({ name: name, version: version });
+                });
+                var padded = lines.map(function (l) {
+                    var spaces = Array((maxNameLen - l.name.length) + 2).join(' '); // 2-space gap
+                    var s = l.name + spaces + l.version;
+                    return pluginHandler.omniosversion.escapeHtml(s);
+                }).join('\n');
+                appsHtml = '<pre style="margin:0; white-space: pre; font-family: monospace;">' + padded + '</pre>';
             } else {
                 appsHtml = 'None';
             }
@@ -321,7 +335,13 @@ module.exports.omniosversion = function (parent) {
 
     obj.refreshApps = function () {
         console.log('[omniosversion] refreshApps clicked');
-        obj.requestApps(true);
+        // Use pluginHandler to avoid scope issues in some MeshCentral builds
+        if (typeof pluginHandler !== 'undefined' && pluginHandler.omniosversion && typeof pluginHandler.omniosversion.requestApps === 'function') {
+            pluginHandler.omniosversion.requestApps(true);
+        } else {
+            // Fallback to local method if available
+            if (typeof obj.requestApps === 'function') { obj.requestApps(true); }
+        }
     };
 
     obj.appsData = function (state, msg) {
