@@ -151,7 +151,7 @@ module.exports.omniosversion = function (parent) {
             console.log('[omniosversion] no data in cache for node:', currentNode._id);
         }
 
-        // Вариант 1: Вставка в таблицу внутри p10html
+        // Вставка в таблицу внутри p10html
         var table = null;
         var p10html = Q('p10html');
         if (p10html) {
@@ -162,8 +162,8 @@ module.exports.omniosversion = function (parent) {
                 var existingRow = table.querySelector('#omniosVersionTableRow');
                 if (existingRow && existingRow.parentNode) existingRow.parentNode.removeChild(existingRow);
                 
-                // Создаём новую строку
-                var row = '<tr id="omniosVersionTableRow"><td style="width:100px"><b>OmniOS:</b></td><td>' + text + '</td></tr>';
+                // Создаём новую строку в стиле MeshCentral
+                var row = '<tr id="omniosVersionTableRow"><td class="style7">OmniOS</td><td class="style9">' + text + '</td></tr>';
                 
                 // Вставляем в начало таблицы (после первой строки если она есть)
                 var tbody = table.querySelector('tbody') || table;
@@ -178,21 +178,6 @@ module.exports.omniosversion = function (parent) {
             }
         } else {
             console.log('[omniosversion] p10html element not found');
-        }
-
-        // Вариант 2: Вставка в .p10html3left (оригинальный вариант)
-        var holder = null;
-        var holderC = Q('p10html3');
-        if (holderC) holder = holderC.querySelector('.p10html3left');
-        if (holder) {
-            var existing = holder.querySelector('#omniosVersionRow');
-            if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
-
-            var tpl = '<div id="omniosVersionRow" class="p10l">OmniOS: ' + text + '</div>';
-            holder.insertAdjacentHTML('beforeend', tpl);
-            console.log('[omniosversion] HTML div injected in p10html3left');
-        } else {
-            console.log('[omniosversion] holder element (.p10html3left) not found');
         }
     };
 
