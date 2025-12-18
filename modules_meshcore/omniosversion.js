@@ -17,10 +17,11 @@ function dbg(msg) {
 }
 
 function consoleaction(args, rights, sessionid, parent) {
-    dbg('consoleaction called with pluginaction: ' + (args.pluginaction || args['_'] ? args['_'][1] : 'unknown'));
     isWsconnection = false;
     wscon = parent;
     _sessionid = sessionid;
+    
+    // Безопасная проверка и инициализация args['_']
     if (typeof args['_'] == 'undefined') {
         args['_'] = [];
         args['_'][1] = args.pluginaction;
@@ -32,6 +33,8 @@ function consoleaction(args, rights, sessionid, parent) {
 
     var fnname = args['_'][1];
     mesh = parent;
+    
+    dbg('consoleaction called with action: ' + fnname);
 
     switch (fnname) {
         case 'readOmni':
