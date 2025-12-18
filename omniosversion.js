@@ -15,7 +15,9 @@ module.exports.omniosversion = function (parent) {
     obj.exports = [
       'onDeviceRefreshEnd',
       'omniData',
-      'requestOmni'
+      'requestOmni',
+      'injectGeneral',
+      'escapeHtml'
     ];
 
     // --- server-side helpers ---
@@ -153,7 +155,7 @@ module.exports.omniosversion = function (parent) {
         var label = 'OmniOS';
         var text = 'Loading...';
         if (data) {
-            text = (data.version == null || data.version === '') ? 'None' : obj.escapeHtml(String(data.version));
+            text = (data.version == null || data.version === '') ? 'None' : pluginHandler.omniosversion.escapeHtml(String(data.version));
             console.log('[omniosversion] displaying version:', text);
         } else {
             console.log('[omniosversion] no data in cache for node:', currentNode._id);
@@ -172,8 +174,8 @@ module.exports.omniosversion = function (parent) {
             return;
         }
         pluginHandler.omniosversion.nodeCache = pluginHandler.omniosversion.nodeCache || {};
-        obj.injectGeneral();
-        obj.requestOmni();
+        pluginHandler.omniosversion.injectGeneral();
+        pluginHandler.omniosversion.requestOmni();
     };
 
     obj.requestOmni = function () {
@@ -195,7 +197,7 @@ module.exports.omniosversion = function (parent) {
         pluginHandler.omniosversion.nodeCache = pluginHandler.omniosversion.nodeCache || {};
         pluginHandler.omniosversion.nodeCache[msg.data.nodeid] = msg.data;
         console.log('[omniosversion] omniData: cached version for', msg.data.nodeid, ':', msg.data.version);
-        obj.injectGeneral();
+        pluginHandler.omniosversion.injectGeneral();
     };
 
     return obj;
