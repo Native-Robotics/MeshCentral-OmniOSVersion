@@ -45,35 +45,56 @@ module.exports.omniosversion = function (parent) {
     };
 
     obj.requestFromAgent = function (nodeid) {
-        if (!nodeid) return;
-        if (obj.inflight[nodeid]) return;
+        obj.debug('omniosversion', 'requestFromAgent called for:', nodeid);
+        if (!nodeid) {
+            obj.debug('omniosversion', 'requestFromAgent: no nodeid');
+            return;
+        }
+        if (obj.inflight[nodeid]) {
+            obj.debug('omniosversion', 'requestFromAgent: already in flight for', nodeid);
+            return;
+        }
         obj.inflight[nodeid] = true;
         var agent = obj.meshServer.webserver.wsagents[nodeid];
-        if (agent == null) { obj.inflight[nodeid] = false; return; }
+        if (agent == null) { 
+            obj.debug('omniosversion', 'requestFromAgent: agent not found for', nodeid);
+            obj.inflight[nodeid] = false; 
+            return; 
+        }
         try {
+            obj.debug('omniosversion', 'requestFromAgent: sending readOmni command to', nodeid);
             agent.send(JSON.stringify({ action: 'plugin', plugin: 'omniosversion', pluginaction: 'readOmni' }));
         } catch (e) {
+            obj.debug('omniosversion', 'requestFromAgent: error sending to agent', nodeid, e);
             obj.inflight[nodeid] = false;
         }
     };
 
     // --- hooks ---
     obj.hook_agentCoreIsStable = function (myparent, gp) {
+        obj.debug('omniosversion', 'hook_agentCoreIsStable called for node:', myparent.dbNodeKey);
         obj.requestFromAgent(myparent.dbNodeKey);
     };
 
     obj.serveraction = function (command, myparent, grandparent) {
+        obj.debug('omniosversion', 'serveraction called with pluginaction:', command.pluginaction);
         switch (command.pluginaction) {
             case 'getOmni': {
                 var nodeid = command.nodeid || myparent.dbNodeKey;
-                if (!nodeid) return;
+                obj.debug('omniosversion', 'getOmni request for node:', nodeid);
+                if (!nodeid) {
+                    obj.debug('omniosversion', 'getOmni: no nodeid');
+                    return;
+                }
                 var cached = obj.cache[nodeid];
                 var msg = { action: 'plugin', plugin: 'omniosversion', method: 'omniData', data: { nodeid: nodeid, version: null } };
                 if (cached) {
+                    obj.debug('omniosversion', 'getOmni: returning cached version:', cached.version);
                     msg.data.version = cached.version;
                     obj.sendToSession(command.sessionid, myparent, msg, grandparent);
                     return;
                 }
+                obj.debug('omniosversion', 'getOmni: no cache, queuing session and requesting from agent');
                 obj.queueSession(nodeid, command.sessionid);
                 obj.sendToSession(command.sessionid, myparent, { action: 'plugin', plugin: 'omniosversion', method: 'omniData', data: { nodeid: nodeid, version: null } }, grandparent);
                 obj.requestFromAgent(nodeid);
@@ -81,9 +102,14 @@ module.exports.omniosversion = function (parent) {
             }
             case 'omniData': {
                 var node = myparent.dbNodeKey;
-                if (!node) return;
+                obj.debug('omniosversion', 'omniData received from agent:', node, 'version:', command.version);
+                if (!node) {
+                    obj.debug('omniosversion', 'omniData: no node');
+                    return;
+                }
                 obj.cache[node] = { version: (command.version === null ? null : command.version || null), time: Date.now() };
                 var outMsg = { action: 'plugin', plugin: 'omniosversion', method: 'omniData', data: { nodeid: node, version: obj.cache[node].version } };
+                obj.debug('omniosversion', 'omniData: flushing to pending sessions');
                 obj.flushPending(node, outMsg, grandparent);
                 obj.inflight[node] = false;
                 break;
@@ -103,12 +129,22 @@ module.exports.omniosversion = function (parent) {
     };
 
     obj.injectGeneral = function () {
-        if (typeof document === 'undefined') return;
-        if (!currentNode) return;
+        console.log('[omniosversion] injectGeneral called');
+        if (typeof document === 'undefined') {
+            console.log('[omniosversion] document is undefined');
+            return;
+        }
+        if (!currentNode) {
+            console.log('[omniosversion] currentNode is undefined');
+            return;
+        }
         var holder = null;
         var holderC = Q('p10html3');
         if (holderC) holder = holderC.querySelector('.p10html3left');
-        if (!holder) return;
+        if (!holder) {
+            console.log('[omniosversion] holder element not found');
+            return;
+        }
 
         var existing = holder.querySelector('#omniosVersionRow');
         if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
@@ -118,29 +154,47 @@ module.exports.omniosversion = function (parent) {
         var text = 'Loading...';
         if (data) {
             text = (data.version == null || data.version === '') ? 'None' : obj.escapeHtml(String(data.version));
+            console.log('[omniosversion] displaying version:', text);
+        } else {
+            console.log('[omniosversion] no data in cache for node:', currentNode._id);
         }
 
         var tpl = '<div id="omniosVersionRow" class="p10l">' + label + ': ' + text + '</div>';
         holder.insertAdjacentHTML('beforeend', tpl);
+        console.log('[omniosversion] HTML injected');
     };
 
     // --- client-side events ---
     obj.onDeviceRefreshEnd = function () {
-        if (typeof meshserver === 'undefined') return;
+        console.log('[omniosversion] onDeviceRefreshEnd called, currentNode:', currentNode ? currentNode._id : 'undefined');
+        if (typeof meshserver === 'undefined') {
+            console.log('[omniosversion] meshserver is undefined');
+            return;
+        }
         pluginHandler.omniosversion.nodeCache = pluginHandler.omniosversion.nodeCache || {};
         obj.injectGeneral();
         obj.requestOmni();
     };
 
     obj.requestOmni = function () {
-        if (typeof meshserver === 'undefined' || !currentNode) return;
+        console.log('[omniosversion] requestOmni called');
+        if (typeof meshserver === 'undefined' || !currentNode) {
+            console.log('[omniosversion] meshserver or currentNode undefined');
+            return;
+        }
+        console.log('[omniosversion] sending getOmni request for node:', currentNode._id);
         meshserver.send({ action: 'plugin', plugin: 'omniosversion', pluginaction: 'getOmni', nodeid: currentNode._id });
     };
 
     obj.omniData = function (state, msg) {
-        if (!msg || !msg.data || !msg.data.nodeid) return;
+        console.log('[omniosversion] omniData received:', msg);
+        if (!msg || !msg.data || !msg.data.nodeid) {
+            console.log('[omniosversion] omniData: invalid message structure');
+            return;
+        }
         pluginHandler.omniosversion.nodeCache = pluginHandler.omniosversion.nodeCache || {};
         pluginHandler.omniosversion.nodeCache[msg.data.nodeid] = msg.data;
+        console.log('[omniosversion] omniData: cached version for', msg.data.nodeid, ':', msg.data.version);
         obj.injectGeneral();
     };
 
