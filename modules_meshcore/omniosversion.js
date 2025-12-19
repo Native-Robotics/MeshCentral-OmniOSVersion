@@ -41,6 +41,10 @@ function consoleaction(args, rights, sessionid, parent) {
             dbg('readOmni action called');
             readOmniFile();
         break;
+        case 'readLaunchpad':
+            dbg('readLaunchpad action called');
+            readLaunchpadFile();
+        break;
         case 'readApps':
             dbg('readApps action called');
             readAppsFile();
@@ -113,6 +117,66 @@ function sendVersion(version) {
         dbg('Command sent successfully');
     } catch (e) {
         dbg('Error sending version: ' + e.message);
+    }
+}
+
+function readLaunchpadFile() {
+    dbg('readLaunchpadFile called');
+    var cacheKey = 'plugin_OmniOSVersion_launchpad_cache';
+    var cached = db.Get(cacheKey);
+    if (cached && cached.version !== undefined) {
+        dbg('Found cached launchpad version: ' + cached.version);
+        sendLaunchpadVersion(cached.version);
+        return;
+    }
+    dbg('No cache found, reading file /home/user/launchpad/scripts/config.sh');
+    var version = null;
+    try {
+        var path = '/home/user/launchpad/scripts/config.sh';
+        if (fs.existsSync(path)) {
+            dbg('File ' + path + ' exists, reading...');
+            var content = fs.readFileSync(path).toString();
+            dbg('File content length: ' + content.length);
+            var lines = content.split(/\r?\n/);
+            dbg('Number of lines: ' + lines.length);
+            lines.forEach(function (line) {
+                if (!line) return;
+                var trimmed = line.trim();
+                if (trimmed.indexOf('launchpad_ver=') !== -1) {
+                    var parts = trimmed.split('=');
+                    if (parts.length >= 2) {
+                        version = parts.slice(1).join('=').trim();
+                        dbg('Found launchpad_ver: ' + version);
+                    }
+                }
+            });
+        } else {
+            dbg('File ' + path + ' does not exist');
+        }
+    } catch (e) {
+        dbg('Error reading launchpad file: ' + e.message);
+    }
+    dbg('Caching launchpad version: ' + version);
+    db.Put(cacheKey, { version: version });
+    sendLaunchpadVersion(version);
+}
+
+function sendLaunchpadVersion(version) {
+    dbg('sendLaunchpadVersion called with version: ' + version);
+    try {
+        var cmd = {
+            action: 'plugin',
+            plugin: 'omniosversion',
+            pluginaction: 'launchpadData',
+            sessionid: _sessionid,
+            tag: 'console',
+            version: version === undefined ? null : version
+        };
+        dbg('Sending launchpad command to server: ' + JSON.stringify(cmd));
+        mesh.SendCommand(cmd);
+        dbg('Launchpad command sent successfully');
+    } catch (e) {
+        dbg('Error sending launchpad version: ' + e.message);
     }
 }
 
