@@ -27,7 +27,7 @@ module.exports.omniosversion = function (parent) {
             'requestLaunchpad',
             'appsData',
             'requestApps',
-            'refreshApps',
+            'refreshAll',
       'injectGeneral',
       'escapeHtml'
     ];
@@ -90,68 +90,68 @@ module.exports.omniosversion = function (parent) {
         delete obj.pendingApps[nodeid];
     };
 
-    obj.requestFromAgent = function (nodeid) {
-        obj.debug('omniosversion', 'requestFromAgent called for:', nodeid);
+    obj.requestFromAgent = function (nodeid, force) {
+        obj.debug('omniosversion', 'requestFromAgent called for:', nodeid, 'force:', !!force);
         if (!nodeid) {
             obj.debug('omniosversion', 'requestFromAgent: no nodeid');
             return;
         }
-        if (obj.inflight[nodeid]) {
+        if (obj.inflight[nodeid] && !force) {
             obj.debug('omniosversion', 'requestFromAgent: already in flight for', nodeid);
             return;
         }
         obj.inflight[nodeid] = true;
         var agent = obj.meshServer.webserver.wsagents[nodeid];
-        if (agent == null) { 
+        if (agent == null) {
             obj.debug('omniosversion', 'requestFromAgent: agent not found for', nodeid);
-            obj.inflight[nodeid] = false; 
-            return; 
+            obj.inflight[nodeid] = false;
+            return;
         }
         try {
             obj.debug('omniosversion', 'requestFromAgent: sending readOmni command to', nodeid);
-            agent.send(JSON.stringify({ action: 'plugin', plugin: 'omniosversion', pluginaction: 'readOmni' }));
+            agent.send(JSON.stringify({ action: 'plugin', plugin: 'omniosversion', pluginaction: 'readOmni', force: !!force }));
         } catch (e) {
             obj.debug('omniosversion', 'requestFromAgent: error sending to agent', nodeid, e);
             obj.inflight[nodeid] = false;
         }
     };
 
-    obj.requestLaunchpadFromAgent = function (nodeid) {
-        obj.debug('omniosversion', 'requestLaunchpadFromAgent called for:', nodeid);
+    obj.requestLaunchpadFromAgent = function (nodeid, force) {
+        obj.debug('omniosversion', 'requestLaunchpadFromAgent called for:', nodeid, 'force:', !!force);
         if (!nodeid) {
             obj.debug('omniosversion', 'requestLaunchpadFromAgent: no nodeid');
             return;
         }
-        if (obj.inflightLaunchpad[nodeid]) {
+        if (obj.inflightLaunchpad[nodeid] && !force) {
             obj.debug('omniosversion', 'requestLaunchpadFromAgent: already in flight for', nodeid);
             return;
         }
         obj.inflightLaunchpad[nodeid] = true;
         var agent = obj.meshServer.webserver.wsagents[nodeid];
-        if (agent == null) { 
+        if (agent == null) {
             obj.debug('omniosversion', 'requestLaunchpadFromAgent: agent not found for', nodeid);
-            obj.inflightLaunchpad[nodeid] = false; 
-            return; 
+            obj.inflightLaunchpad[nodeid] = false;
+            return;
         }
         try {
             obj.debug('omniosversion', 'requestLaunchpadFromAgent: sending readLaunchpad command to', nodeid);
-            agent.send(JSON.stringify({ action: 'plugin', plugin: 'omniosversion', pluginaction: 'readLaunchpad' }));
+            agent.send(JSON.stringify({ action: 'plugin', plugin: 'omniosversion', pluginaction: 'readLaunchpad', force: !!force }));
         } catch (e) {
             obj.debug('omniosversion', 'requestLaunchpadFromAgent: error sending to agent', nodeid, e);
             obj.inflightLaunchpad[nodeid] = false;
         }
     };
 
-    obj.requestAppsFromAgent = function (nodeid) {
-        obj.debug('omniosversion', 'requestAppsFromAgent called for:', nodeid);
+    obj.requestAppsFromAgent = function (nodeid, force) {
+        obj.debug('omniosversion', 'requestAppsFromAgent called for:', nodeid, 'force:', !!force);
         if (!nodeid) { obj.debug('omniosversion', 'requestAppsFromAgent: no nodeid'); return; }
-        if (obj.inflightApps[nodeid]) { obj.debug('omniosversion', 'requestAppsFromAgent: already inflight for', nodeid); return; }
+        if (obj.inflightApps[nodeid] && !force) { obj.debug('omniosversion', 'requestAppsFromAgent: already inflight for', nodeid); return; }
         obj.inflightApps[nodeid] = true;
         var agent = obj.meshServer.webserver.wsagents[nodeid];
         if (agent == null) { obj.debug('omniosversion', 'requestAppsFromAgent: agent not found for', nodeid); obj.inflightApps[nodeid] = false; return; }
         try {
             obj.debug('omniosversion', 'requestAppsFromAgent: sending readApps command to', nodeid);
-            agent.send(JSON.stringify({ action: 'plugin', plugin: 'omniosversion', pluginaction: 'readApps' }));
+            agent.send(JSON.stringify({ action: 'plugin', plugin: 'omniosversion', pluginaction: 'readApps', force: !!force }));
         } catch (e) {
             obj.debug('omniosversion', 'requestAppsFromAgent: error sending to agent', nodeid, e);
             obj.inflightApps[nodeid] = false;
@@ -171,23 +171,23 @@ module.exports.omniosversion = function (parent) {
         switch (command.pluginaction) {
             case 'getOmni': {
                 var nodeid = command.nodeid || myparent.dbNodeKey;
-                obj.debug('omniosversion', 'getOmni request for node:', nodeid);
+                var force = !!command.force;
+                obj.debug('omniosversion', 'getOmni request for node:', nodeid, 'force:', force);
                 if (!nodeid) {
                     obj.debug('omniosversion', 'getOmni: no nodeid');
                     return;
                 }
                 var cached = obj.cache[nodeid];
-                var msg = { action: 'plugin', plugin: 'omniosversion', method: 'omniData', data: { nodeid: nodeid, version: null } };
-                if (cached) {
+                var msg = { action: 'plugin', plugin: 'omniosversion', method: 'omniData', data: { nodeid: nodeid, version: (cached ? cached.version : null) } };
+                if (cached && !force) {
                     obj.debug('omniosversion', 'getOmni: returning cached version:', cached.version);
-                    msg.data.version = cached.version;
                     obj.sendToSession(command.sessionid, myparent, msg, grandparent);
                     return;
                 }
-                obj.debug('omniosversion', 'getOmni: no cache, queuing session and requesting from agent');
+                obj.debug('omniosversion', 'getOmni: cache miss or force; queuing session and requesting from agent');
                 obj.queueSession(nodeid, command.sessionid);
-                obj.sendToSession(command.sessionid, myparent, { action: 'plugin', plugin: 'omniosversion', method: 'omniData', data: { nodeid: nodeid, version: null } }, grandparent);
-                obj.requestFromAgent(nodeid);
+                obj.sendToSession(command.sessionid, myparent, msg, grandparent);
+                obj.requestFromAgent(nodeid, force);
                 break;
             }
             case 'omniData': {
@@ -206,23 +206,23 @@ module.exports.omniosversion = function (parent) {
             }
             case 'getLaunchpad': {
                 var nodeid = command.nodeid || myparent.dbNodeKey;
-                obj.debug('omniosversion', 'getLaunchpad request for node:', nodeid);
+                var force = !!command.force;
+                obj.debug('omniosversion', 'getLaunchpad request for node:', nodeid, 'force:', force);
                 if (!nodeid) {
                     obj.debug('omniosversion', 'getLaunchpad: no nodeid');
                     return;
                 }
                 var cached = obj.launchpadCache[nodeid];
-                var msg = { action: 'plugin', plugin: 'omniosversion', method: 'launchpadData', data: { nodeid: nodeid, version: null } };
-                if (cached) {
+                var msg = { action: 'plugin', plugin: 'omniosversion', method: 'launchpadData', data: { nodeid: nodeid, version: (cached ? cached.version : null) } };
+                if (cached && !force) {
                     obj.debug('omniosversion', 'getLaunchpad: returning cached version:', cached.version);
-                    msg.data.version = cached.version;
                     obj.sendToSession(command.sessionid, myparent, msg, grandparent);
                     return;
                 }
-                obj.debug('omniosversion', 'getLaunchpad: no cache, queuing session and requesting from agent');
+                obj.debug('omniosversion', 'getLaunchpad: cache miss or force; queuing session and requesting from agent');
                 obj.queueSessionLaunchpad(nodeid, command.sessionid);
-                obj.sendToSession(command.sessionid, myparent, { action: 'plugin', plugin: 'omniosversion', method: 'launchpadData', data: { nodeid: nodeid, version: null } }, grandparent);
-                obj.requestLaunchpadFromAgent(nodeid);
+                obj.sendToSession(command.sessionid, myparent, msg, grandparent);
+                obj.requestLaunchpadFromAgent(nodeid, force);
                 break;
             }
             case 'launchpadData': {
@@ -256,7 +256,7 @@ module.exports.omniosversion = function (parent) {
                 obj.queueSessionApps(nodeid2, command.sessionid);
                 // Send immediate response with current (possibly null) cache to update UI
                 obj.sendToSession(command.sessionid, myparent, msgApps, grandparent);
-                obj.requestAppsFromAgent(nodeid2);
+                obj.requestAppsFromAgent(nodeid2, force);
                 break;
             }
             case 'appsData': {
@@ -365,7 +365,7 @@ module.exports.omniosversion = function (parent) {
                 // Создаём новые строки в стиле MeshCentral
                 var row = '<tr id="omniosVersionTableRow"><td class="style7">OmniOS</td><td class="style9">' + text + '</td></tr>';
                 var launchpadRow = '<tr id="omniosLaunchpadTableRow"><td class="style7">Launchpad</td><td class="style9">' + launchpadText + '</td></tr>';
-                var refreshLink = '<a href="#" onclick="pluginHandler.omniosversion.refreshApps(); return false;">Refresh</a>';
+                var refreshLink = '<a href="#" onclick="pluginHandler.omniosversion.refreshAll(); return false;">Refresh</a>';
                 var appsRow = '<tr id="omniosAppsTableRow"><td class="style7">Apps' + (appsCount ? (' (' + appsCount + ')') : '') + '</td><td class="style9">' + appsHtml + '<div style="margin-top:4px;color:#888;">' + refreshLink + (updatedTxt ? (' • ' + updatedTxt) : '') + '</div></td></tr>';
                 
                 // Вставляем в начало таблицы (после первой строки если она есть)
@@ -400,14 +400,14 @@ module.exports.omniosversion = function (parent) {
         pluginHandler.omniosversion.requestApps();
     };
 
-    obj.requestOmni = function () {
-        console.log('[omniosversion] requestOmni called');
+    obj.requestOmni = function (force) {
+        console.log('[omniosversion] requestOmni called; force:', !!force);
         if (typeof meshserver === 'undefined' || !currentNode) {
             console.log('[omniosversion] meshserver or currentNode undefined');
             return;
         }
         console.log('[omniosversion] sending getOmni request for node:', currentNode._id);
-        meshserver.send({ action: 'plugin', plugin: 'omniosversion', pluginaction: 'getOmni', nodeid: currentNode._id });
+        meshserver.send({ action: 'plugin', plugin: 'omniosversion', pluginaction: 'getOmni', nodeid: currentNode._id, force: !!force });
     };
 
     obj.omniData = function (state, msg) {
@@ -422,14 +422,14 @@ module.exports.omniosversion = function (parent) {
         pluginHandler.omniosversion.injectGeneral();
     };
 
-    obj.requestLaunchpad = function () {
-        console.log('[omniosversion] requestLaunchpad called');
+    obj.requestLaunchpad = function (force) {
+        console.log('[omniosversion] requestLaunchpad called; force:', !!force);
         if (typeof meshserver === 'undefined' || !currentNode) {
             console.log('[omniosversion] meshserver or currentNode undefined');
             return;
         }
         console.log('[omniosversion] sending getLaunchpad request for node:', currentNode._id);
-        meshserver.send({ action: 'plugin', plugin: 'omniosversion', pluginaction: 'getLaunchpad', nodeid: currentNode._id });
+        meshserver.send({ action: 'plugin', plugin: 'omniosversion', pluginaction: 'getLaunchpad', nodeid: currentNode._id, force: !!force });
     };
 
     obj.launchpadData = function (state, msg) {
@@ -453,15 +453,13 @@ module.exports.omniosversion = function (parent) {
         meshserver.send({ action: 'plugin', plugin: 'omniosversion', pluginaction: 'getApps', nodeid: currentNode._id, force: !!force });
     };
 
-    obj.refreshApps = function () {
-        console.log('[omniosversion] refreshApps clicked');
+    obj.refreshAll = function () {
+        console.log('[omniosversion] refreshAll clicked');
         // Use pluginHandler to avoid scope issues in some MeshCentral builds
-        if (typeof pluginHandler !== 'undefined' && pluginHandler.omniosversion && typeof pluginHandler.omniosversion.requestApps === 'function') {
-            pluginHandler.omniosversion.requestApps(true);
-        } else {
-            // Fallback to local method if available
-            if (typeof obj.requestApps === 'function') { obj.requestApps(true); }
-        }
+        var h = (typeof pluginHandler !== 'undefined' && pluginHandler.omniosversion) ? pluginHandler.omniosversion : obj;
+        if (typeof h.requestOmni === 'function') { h.requestOmni(true); }
+        if (typeof h.requestLaunchpad === 'function') { h.requestLaunchpad(true); }
+        if (typeof h.requestApps === 'function') { h.requestApps(true); }
     };
 
     obj.appsData = function (state, msg) {
