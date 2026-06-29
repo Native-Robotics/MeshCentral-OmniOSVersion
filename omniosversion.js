@@ -177,16 +177,17 @@ module.exports.omniosversion = function (parent) {
                     obj.debug('omniosversion', 'getOmni: no nodeid');
                     return;
                 }
+                var sessionid = command.sessionid || (myparent && myparent.ws && myparent.ws.sessionId) || null;
                 var cached = obj.cache[nodeid];
                 var msg = { action: 'plugin', plugin: 'omniosversion', method: 'omniData', data: { nodeid: nodeid, version: (cached ? cached.version : null) } };
                 if (cached && !force) {
                     obj.debug('omniosversion', 'getOmni: returning cached version:', cached.version);
-                    obj.sendToSession(command.sessionid, myparent, msg, grandparent);
+                    obj.sendToSession(sessionid, myparent, msg, grandparent);
                     return;
                 }
                 obj.debug('omniosversion', 'getOmni: cache miss or force; queuing session and requesting from agent');
-                obj.queueSession(nodeid, command.sessionid);
-                obj.sendToSession(command.sessionid, myparent, msg, grandparent);
+                obj.queueSession(nodeid, sessionid);
+                obj.sendToSession(sessionid, myparent, msg, grandparent);
                 obj.requestFromAgent(nodeid, force);
                 break;
             }
@@ -212,16 +213,17 @@ module.exports.omniosversion = function (parent) {
                     obj.debug('omniosversion', 'getLaunchpad: no nodeid');
                     return;
                 }
+                var sessionid = command.sessionid || (myparent && myparent.ws && myparent.ws.sessionId) || null;
                 var cached = obj.launchpadCache[nodeid];
                 var msg = { action: 'plugin', plugin: 'omniosversion', method: 'launchpadData', data: { nodeid: nodeid, version: (cached ? cached.version : null) } };
                 if (cached && !force) {
                     obj.debug('omniosversion', 'getLaunchpad: returning cached version:', cached.version);
-                    obj.sendToSession(command.sessionid, myparent, msg, grandparent);
+                    obj.sendToSession(sessionid, myparent, msg, grandparent);
                     return;
                 }
                 obj.debug('omniosversion', 'getLaunchpad: cache miss or force; queuing session and requesting from agent');
-                obj.queueSessionLaunchpad(nodeid, command.sessionid);
-                obj.sendToSession(command.sessionid, myparent, msg, grandparent);
+                obj.queueSessionLaunchpad(nodeid, sessionid);
+                obj.sendToSession(sessionid, myparent, msg, grandparent);
                 obj.requestLaunchpadFromAgent(nodeid, force);
                 break;
             }
@@ -244,18 +246,19 @@ module.exports.omniosversion = function (parent) {
                 var force = !!command.force;
                 obj.debug('omniosversion', 'getApps request for node:', nodeid2, 'force:', force);
                 if (!nodeid2) { obj.debug('omniosversion', 'getApps: no nodeid'); return; }
+                var sessionid = command.sessionid || (myparent && myparent.ws && myparent.ws.sessionId) || null;
                 var cachedApps = obj.appsCache[nodeid2];
                 var fresh = cachedApps && ((Date.now() - cachedApps.time) < obj.appsTtlMs);
                 var msgApps = { action: 'plugin', plugin: 'omniosversion', method: 'appsData', data: { nodeid: nodeid2, apps: (cachedApps ? cachedApps.apps : null), updated: (cachedApps ? cachedApps.updated : null) } };
                 if (cachedApps && fresh && !force) {
                     obj.debug('omniosversion', 'getApps: returning cached apps; count:', (cachedApps.apps ? cachedApps.apps.length : 0));
-                    obj.sendToSession(command.sessionid, myparent, msgApps, grandparent);
+                    obj.sendToSession(sessionid, myparent, msgApps, grandparent);
                     return;
                 }
                 obj.debug('omniosversion', 'getApps: cache miss/stale or force; queuing and requesting from agent');
-                obj.queueSessionApps(nodeid2, command.sessionid);
+                obj.queueSessionApps(nodeid2, sessionid);
                 // Send immediate response with current (possibly null) cache to update UI
-                obj.sendToSession(command.sessionid, myparent, msgApps, grandparent);
+                obj.sendToSession(sessionid, myparent, msgApps, grandparent);
                 obj.requestAppsFromAgent(nodeid2, force);
                 break;
             }
