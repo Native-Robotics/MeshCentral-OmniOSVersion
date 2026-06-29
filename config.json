@@ -1,7 +1,7 @@
 {
   "name": "OmniOS Version",
   "shortName": "omniosversion",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "author": "wwwfyl",
   "description": "Show OmniOS version on the device General tab.",
   "hasAdminPanel": false,
