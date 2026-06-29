@@ -249,7 +249,7 @@ module.exports.omniosversion = function (parent) {
                 var sessionid = command.sessionid || (myparent && myparent.ws && myparent.ws.sessionId) || null;
                 var cachedApps = obj.appsCache[nodeid2];
                 var fresh = cachedApps && ((Date.now() - cachedApps.time) < obj.appsTtlMs);
-                var msgApps = { action: 'plugin', plugin: 'omniosversion', method: 'appsData', data: { nodeid: nodeid2, apps: (cachedApps ? cachedApps.apps : null), updated: (cachedApps ? cachedApps.updated : null) } };
+                var msgApps = { action: 'plugin', plugin: 'omniosversion', method: 'appsData', data: { nodeid: nodeid2, apps: (cachedApps ? cachedApps.apps : null), updated: (cachedApps ? cachedApps.updated : null), received: (cachedApps ? cachedApps.time : null) } };
                 if (cachedApps && fresh && !force) {
                     obj.debug('omniosversion', 'getApps: returning cached apps; count:', (cachedApps.apps ? cachedApps.apps.length : 0));
                     obj.sendToSession(sessionid, myparent, msgApps, grandparent);
@@ -268,7 +268,7 @@ module.exports.omniosversion = function (parent) {
                 var appsArr = Array.isArray(command.apps) ? command.apps : [];
                 var upd = command.updated || null;
                 obj.appsCache[node3] = { apps: appsArr, updated: upd, time: Date.now() };
-                var outMsg2 = { action: 'plugin', plugin: 'omniosversion', method: 'appsData', data: { nodeid: node3, apps: appsArr, updated: upd } };
+                var outMsg2 = { action: 'plugin', plugin: 'omniosversion', method: 'appsData', data: { nodeid: node3, apps: appsArr, updated: upd, received: obj.appsCache[node3].time } };
                 obj.debug('omniosversion', 'appsData: received; apps:', appsArr.length, 'updated:', upd);
                 obj.flushPendingApps(node3, outMsg2, grandparent);
                 obj.inflightApps[node3] = false;
@@ -345,7 +345,12 @@ module.exports.omniosversion = function (parent) {
             } else {
                 appsHtml = 'None';
             }
-            if (appsCache.updated) { updatedTxt = ' (Last updated: ' + pluginHandler.omniosversion.escapeHtml(String(appsCache.updated)) + ')'; }
+            if (appsCache.received) {
+                var d = new Date(appsCache.received);
+                var pad = function (n) { return (n < 10 ? '0' : '') + n; };
+                var receivedTxt = d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+                updatedTxt = ' (Last updated: ' + receivedTxt + ')';
+            }
         } else {
             console.log('[omniosversion] no apps data in cache for node:', currentNode._id);
         }
@@ -469,7 +474,7 @@ module.exports.omniosversion = function (parent) {
         console.log('[omniosversion] appsData received:', msg);
         if (!msg || !msg.data || !msg.data.nodeid) { console.log('[omniosversion] appsData: invalid message'); return; }
         pluginHandler.omniosversion.nodeAppsCache = pluginHandler.omniosversion.nodeAppsCache || {};
-        pluginHandler.omniosversion.nodeAppsCache[msg.data.nodeid] = { apps: (msg.data.apps || []), updated: (msg.data.updated || null) };
+        pluginHandler.omniosversion.nodeAppsCache[msg.data.nodeid] = { apps: (msg.data.apps || []), updated: (msg.data.updated || null), received: (msg.data.received || null) };
         pluginHandler.omniosversion.injectGeneral();
     };
 
