@@ -32,18 +32,19 @@ function consoleaction(args, rights, sessionid, parent) {
     }
 
     var fnname = args['_'][1];
+    var force = !!args.force;
     mesh = parent;
-    
-    dbg('consoleaction called with action: ' + fnname);
+
+    dbg('consoleaction called with action: ' + fnname + ', force: ' + force);
 
     switch (fnname) {
         case 'readOmni':
             dbg('readOmni action called');
-            readOmniFile();
+            readOmniFile(force);
         break;
         case 'readLaunchpad':
             dbg('readLaunchpad action called');
-            readLaunchpadFile();
+            readLaunchpadFile(force);
         break;
         case 'readApps':
             dbg('readApps action called');
@@ -55,16 +56,18 @@ function consoleaction(args, rights, sessionid, parent) {
     }
 }
 
-function readOmniFile() {
-    dbg('readOmniFile called');
+function readOmniFile(force) {
+    dbg('readOmniFile called, force: ' + !!force);
     var cacheKey = 'plugin_OmniOSVersion_cache';
-    var cached = db.Get(cacheKey);
-    if (cached && cached.version !== undefined) {
-        dbg('Found cached version: ' + cached.version);
-        sendVersion(cached.version);
-        return;
+    if (!force) {
+        var cached = db.Get(cacheKey);
+        if (cached && cached.version !== undefined) {
+            dbg('Found cached version: ' + cached.version);
+            sendVersion(cached.version);
+            return;
+        }
     }
-    dbg('No cache found, reading file /etc/OmniOS');
+    dbg('Reading file /etc/OmniOS');
     var version = null;
     try {
         if (fs.existsSync('/etc/OmniOS')) {
@@ -120,16 +123,18 @@ function sendVersion(version) {
     }
 }
 
-function readLaunchpadFile() {
-    dbg('readLaunchpadFile called');
+function readLaunchpadFile(force) {
+    dbg('readLaunchpadFile called, force: ' + !!force);
     var cacheKey = 'plugin_OmniOSVersion_launchpad_cache';
-    var cached = db.Get(cacheKey);
-    if (cached && cached.version !== undefined) {
-        dbg('Found cached launchpad version: ' + cached.version);
-        sendLaunchpadVersion(cached.version);
-        return;
+    if (!force) {
+        var cached = db.Get(cacheKey);
+        if (cached && cached.version !== undefined) {
+            dbg('Found cached launchpad version: ' + cached.version);
+            sendLaunchpadVersion(cached.version);
+            return;
+        }
     }
-    dbg('No cache found, reading file /home/user/launchpad/scripts/config.sh');
+    dbg('Reading file /home/user/launchpad/scripts/config.sh');
     var version = null;
     try {
         var path = '/home/user/launchpad/scripts/config.sh';
