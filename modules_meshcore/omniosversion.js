@@ -5,6 +5,8 @@
 "use strict";
 var mesh;
 var _sessionid;
+var _requestId;
+var CACHE_TTL_MS = 60000;
 var isWsconnection = false;
 var wscon = null;
 var db = require('SimpleDataStore').Shared();
@@ -20,6 +22,7 @@ function consoleaction(args, rights, sessionid, parent) {
     isWsconnection = false;
     wscon = parent;
     _sessionid = sessionid;
+    _requestId = typeof args.requestId === 'string' ? args.requestId : undefined;
     
     // Безопасная проверка и инициализация args['_']
     if (typeof args['_'] == 'undefined') {
@@ -56,11 +59,31 @@ function consoleaction(args, rights, sessionid, parent) {
     }
 }
 
+function readCachedVersion(key) {
+    try {
+        var raw = db.Get(key);
+        var cached = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        if (cached && (typeof cached.version === 'string' || cached.version === null) &&
+            typeof cached.time === 'number' && Date.now() >= cached.time && Date.now() - cached.time < CACHE_TTL_MS) return cached;
+    } catch (e) { }
+    return null;
+}
+
+function saveVersion(key, version) {
+    try { db.Put(key, { version: version, time: Date.now() }); } catch (e) { dbg('Cannot cache version: ' + e); }
+}
+
+function unquote(value) {
+    if ((value.charAt(0) === '"' && value.slice(-1) === '"') ||
+        (value.charAt(0) === "'" && value.slice(-1) === "'")) return value.slice(1, -1);
+    return value;
+}
+
 function readOmniFile(force) {
     dbg('readOmniFile called, force: ' + !!force);
     var cacheKey = 'plugin_OmniOSVersion_cache';
     if (!force) {
-        var cached = db.Get(cacheKey);
+        var cached = readCachedVersion(cacheKey);
         if (cached && cached.version !== undefined) {
             dbg('Found cached version: ' + cached.version);
             sendVersion(cached.version);
@@ -78,11 +101,11 @@ function readOmniFile(force) {
             dbg('Number of lines: ' + lines.length);
             var firstPair = null;
             lines.forEach(function (line) {
-                if (!line) return;
+                if (!line || /^\s*#/.test(line)) return;
                 var parts = line.split('=');
                 if (parts.length < 2) return;
                 var key = parts[0].trim();
-                var val = parts.slice(1).join('=').trim();
+                var val = unquote(parts.slice(1).join('=').trim());
                 if (!firstPair) firstPair = val;
                 if (key.toUpperCase() === 'OMNIOS_VER') {
                     version = val;
@@ -97,14 +120,15 @@ function readOmniFile(force) {
             dbg('File /etc/OmniOS does not exist');
         }
     } catch (e) {
-        dbg('Error reading file: ' + e.message);
+        sendVersion(null, 'Cannot read OmniOS version: ' + e.message);
+        return;
     }
     dbg('Caching version: ' + version);
-    db.Put(cacheKey, { version: version });
+    saveVersion(cacheKey, version);
     sendVersion(version);
 }
 
-function sendVersion(version) {
+function sendVersion(version, error) {
     dbg('sendVersion called with version: ' + version);
     try {
         var cmd = {
@@ -112,7 +136,9 @@ function sendVersion(version) {
             plugin: 'omniosversion',
             pluginaction: 'omniData',
             sessionid: _sessionid,
+            requestId: _requestId,
             tag: 'console',
+            error: error,
             version: version === undefined ? null : version
         };
         dbg('Sending command to server: ' + JSON.stringify(cmd));
@@ -127,7 +153,7 @@ function readLaunchpadFile(force) {
     dbg('readLaunchpadFile called, force: ' + !!force);
     var cacheKey = 'plugin_OmniOSVersion_launchpad_cache';
     if (!force) {
-        var cached = db.Get(cacheKey);
+        var cached = readCachedVersion(cacheKey);
         if (cached && cached.version !== undefined) {
             dbg('Found cached launchpad version: ' + cached.version);
             sendLaunchpadVersion(cached.version);
@@ -147,26 +173,22 @@ function readLaunchpadFile(force) {
             lines.forEach(function (line) {
                 if (!line) return;
                 var trimmed = line.trim();
-                if (trimmed.indexOf('launchpad_ver=') !== -1) {
-                    var parts = trimmed.split('=');
-                    if (parts.length >= 2) {
-                        version = parts.slice(1).join('=').trim();
-                        dbg('Found launchpad_ver: ' + version);
-                    }
-                }
+                var match = trimmed.match(/^(?:export\s+)?launchpad_ver\s*=\s*(.*)$/);
+                if (match) version = unquote(match[1].trim());
             });
         } else {
             dbg('File ' + path + ' does not exist');
         }
     } catch (e) {
-        dbg('Error reading launchpad file: ' + e.message);
+        sendLaunchpadVersion(null, 'Cannot read Launchpad version: ' + e.message);
+        return;
     }
     dbg('Caching launchpad version: ' + version);
-    db.Put(cacheKey, { version: version });
+    saveVersion(cacheKey, version);
     sendLaunchpadVersion(version);
 }
 
-function sendLaunchpadVersion(version) {
+function sendLaunchpadVersion(version, error) {
     dbg('sendLaunchpadVersion called with version: ' + version);
     try {
         var cmd = {
@@ -174,7 +196,9 @@ function sendLaunchpadVersion(version) {
             plugin: 'omniosversion',
             pluginaction: 'launchpadData',
             sessionid: _sessionid,
+            requestId: _requestId,
             tag: 'console',
+            error: error,
             version: version === undefined ? null : version
         };
         dbg('Sending launchpad command to server: ' + JSON.stringify(cmd));
@@ -191,6 +215,7 @@ function readAppsFile() {
     var path = '/var/nr/apps.ver';
     var apps = [];
     var updated = null;
+    var readError;
     try {
         if (fs.existsSync(path)) {
             dbg('File ' + path + ' exists, reading...');
@@ -202,9 +227,11 @@ function readAppsFile() {
                 var trimmed = line.trim();
                 if (trimmed.length === 0) return;
                 // Try to detect an update timestamp line
-                if (!updated && /update|updated|date|timestamp/i.test(trimmed)) {
-                    updated = trimmed.replace(/^\s*[-#;]*/,'').trim();
+                if (/^(?:[-#;]\s*)*(?:last\s+)?(?:update(?:d)?|date|timestamp)\s*[:=]/i.test(trimmed)) {
+                    updated = trimmed.replace(/^\s*[-#;]*/, '').trim();
+                    return;
                 }
+                if (/^[#;]/.test(trimmed)) return;
                 // Parse possible formats: key=value, name: version, "Name version: x", "Name x.y.z"
                 var name = null, version = null;
                 if (trimmed.indexOf('=') !== -1) {
@@ -238,7 +265,7 @@ function readAppsFile() {
             dbg('File ' + path + ' does not exist');
         }
     } catch (e) {
-        dbg('Error reading apps file: ' + e.message);
+        readError = 'Cannot read application versions: ' + e.message;
     }
     try {
         var cmd = {
@@ -246,7 +273,9 @@ function readAppsFile() {
             plugin: 'omniosversion',
             pluginaction: 'appsData',
             sessionid: _sessionid,
+            requestId: _requestId,
             tag: 'console',
+            error: readError,
             apps: apps,
             updated: updated
         };

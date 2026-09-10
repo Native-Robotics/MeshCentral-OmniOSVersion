@@ -1,28 +1,55 @@
 # MeshCentral OmniOS Version
 
-The plugin shows the OmniOS version on the General tab of the "My Devices" page. The value is read from the `/etc/OmniOS` file on the agent and cached on the agent side.
+Shows OmniOS, Launchpad and application versions on the device General tab. The MeshAgent reads the inventory files on the device; the MeshCentral plugin checks device visibility before returning inventory to a browser.
 
-## Features
+## Inventory sources
 
-- Displays after the tags/relay block.
-- If `/etc/OmniOS` is missing, shows `None`.
-- Per-agent caching: repeat requests avoid re-reading the file until the agent restarts.
-- No admin panel or configuration.
+| Row | Device source |
+|---|---|
+| OmniOS | `/etc/OmniOS`, `OMNIOS_VER` or the first parsed value |
+| Launchpad | `/home/user/launchpad/scripts/config.sh`, `launchpad_ver` assignment |
+| Apps | `/var/nr/apps.ver`, application name/version pairs |
 
-## Installation
+Quoted version values are unquoted, commented-out Launchpad assignments are ignored, and application timestamp/comment lines are excluded from the application list. Missing inventory is shown as `None`; read, offline and request failures are shown as errors.
 
-1. Copy the `MeshCentral-OmniOSVersion` folder into the MeshCentral plugins directory.
-2. Restart MeshCentral to load the plugin.
+## Caching and refresh
 
-## Usage
+- OmniOS and Launchpad values are cached for one minute on the agent and server. Agent cache entries are parsed from JSON and checked for field types and age; old cache formats are read again from the source files.
+- Application inventory is cached on the server for 24 hours; the agent reads it on each request. The displayed update time is the time MeshCentral received that inventory.
+- **Refresh** bypasses the caches for all three inventories. A stable agent-core connection also triggers fresh inventory reads.
+- Read errors do not overwrite the agent cache with a successful null result.
+- Requests time out after 30 seconds on the server, with a 35-second browser fallback. They can then be retried without restarting MeshCentral.
+- Replies are matched by agent connection and request ID. Late responses and old timers cannot overwrite a newer request. Existing rows update in place so the adjacent SendLogs Export row remains in position.
 
-- Open a device on "My Devices" → General tab.
-- The plugin automatically requests the version from the agent and shows `OmniOS: <version|None>`.
+## Installation and update
 
-## Requirements
+Enable plugins in MeshCentral and install through the plugin manager. For manual installation, use `<meshcentral-data>/plugins/omniosversion/` and register `omniosversion` through the plugin database or `settings.plugins.list`.
 
-- The agent must be able to read `/etc/OmniOS`.
+Version 0.5.0 requires coordinated server/agent/browser updates because replies now include request IDs:
 
-## Support
+1. Copy the updated files into the installed plugin directory and use **Reload** for the server plugin.
+2. Rebuild and synchronize the agent core on a test device from an authenticated admin browser console:
 
-- Code comments and log messages are in English; UI text is in English here as well.
+   ```javascript
+   meshserver.send({action: 'uploadagentcore', type: 'default', nodeids: ['node/<domain>/<device-id>']});
+   ```
+
+3. Wait for the core to become stable, fully reload the device page and verify all three inventory rows and **Refresh**.
+
+In this MeshCentral checkout, `distributeCore()` synchronizes an already built bundle; it does not rebuild edited agent module files. Avoid redistributing cores during another plugin's active device operation.
+
+## Access
+
+Users must be able to see the requested device in their authenticated domain. The server checks access before serving caches or requesting agent data, and checks it again before delivering results. A browser-supplied session ID cannot redirect the reply to another session. The agent process must have read access to the inventory files.
+
+No admin panel or additional plugin configuration is required.
+
+## Development
+
+Run tests with Node.js 18 or newer:
+
+```sh
+node --test tests/*.test.js
+```
+
+Tests cover authorization, persistent-cache migration/expiry/force refresh, read failures, request timeouts and stale replies, serialized browser functions, stable row updates, and the full protocol round trip with mocked device I/O. A deployment check on an actual OmniOS device is still required to validate its MeshAgent runtime and filesystem.
